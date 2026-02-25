@@ -7,6 +7,8 @@ Implemented compaction strategies:
 - `trim`: keep recent messages under a token budget
 - `summarize`: summarize older trajectory into a running summary and keep recent messages
 
+Compaction is applied only when estimated context tokens exceed `--token-budget` (default `110000`).
+
 ## What this gives you
 
 - ReAct-style tool loop with web search (`web_search` via DuckDuckGo)

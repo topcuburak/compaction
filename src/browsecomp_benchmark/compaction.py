@@ -58,6 +58,8 @@ class ConversationCompactor:
         strategy = self.config.strategy.lower().strip()
         if strategy == "none":
             return messages
+        if estimate_tokens(messages) <= self.config.token_budget:
+            return messages
         if strategy == "trim":
             return self._trim(messages)
         if strategy == "summarize":
@@ -107,65 +109,55 @@ class ConversationCompactor:
     def _summarize(self, messages: list[BaseMessage], summarizer: BaseChatModel | None) -> list[BaseMessage]:
         base_messages = [m for m in messages if not self._is_summary_message(m)]
         budget = self.config.token_budget
-        trigger = int(budget * self.config.summary_trigger_ratio)
-
-        if estimate_tokens(base_messages) <= trigger:
-            if self.running_summary and base_messages and isinstance(base_messages[0], SystemMessage):
-                return [base_messages[0], self._build_summary_message(), *base_messages[1:]]
-            return base_messages
+        keep_last = max(2, self.config.keep_last_messages)
 
         if summarizer is None:
-            return self._trim(base_messages)
+            return self._trim(messages)
 
-        if len(base_messages) <= 2:
-            return self._trim(base_messages)
+        if len(base_messages) > 2 and len(base_messages) - 1 > keep_last:
+            older_messages = base_messages[1:-keep_last]
+            if older_messages:
+                chunk_text = "\n".join(message_to_text(m) for m in older_messages)
+                if len(chunk_text) > self.config.summary_max_chars:
+                    chunk_text = chunk_text[: self.config.summary_max_chars]
 
-        keep_last = max(2, self.config.keep_last_messages)
-        if len(base_messages) - 1 <= keep_last:
-            return self._trim(base_messages)
+                summary_prompt = [
+                    SystemMessage(
+                        content=(
+                            "You compact an agent trajectory for a web-question-answering task. "
+                            "Preserve factual leads, constraints, intermediate conclusions, and unresolved questions. "
+                            "Write concise bullet points for future reasoning."
+                        )
+                    ),
+                    HumanMessage(
+                        content=(
+                            "Current summary:\n"
+                            f"{self.running_summary or '(none)'}\n\n"
+                            "New trajectory chunk to merge:\n"
+                            f"{chunk_text}\n\n"
+                            "Return only the updated summary bullets."
+                        )
+                    ),
+                ]
 
-        older_messages = base_messages[1:-keep_last]
-        if not older_messages:
-            return self._trim(base_messages)
+                try:
+                    response = summarizer.invoke(summary_prompt)
+                    new_summary = response.content if isinstance(response.content, str) else str(response.content)
+                    new_summary = new_summary.strip()
+                    if new_summary:
+                        self.running_summary = new_summary
+                except Exception:
+                    # If summary fails, keep the run going with deterministic trimming.
+                    return self._trim(messages)
 
-        chunk_text = "\n".join(message_to_text(m) for m in older_messages)
-        if len(chunk_text) > self.config.summary_max_chars:
-            chunk_text = chunk_text[: self.config.summary_max_chars]
-
-        summary_prompt = [
-            SystemMessage(
-                content=(
-                    "You compact an agent trajectory for a web-question-answering task. "
-                    "Preserve factual leads, constraints, intermediate conclusions, and unresolved questions. "
-                    "Write concise bullet points for future reasoning."
-                )
-            ),
-            HumanMessage(
-                content=(
-                    "Current summary:\n"
-                    f"{self.running_summary or '(none)'}\n\n"
-                    "New trajectory chunk to merge:\n"
-                    f"{chunk_text}\n\n"
-                    "Return only the updated summary bullets."
-                )
-            ),
-        ]
-
-        try:
-            response = summarizer.invoke(summary_prompt)
-            new_summary = response.content if isinstance(response.content, str) else str(response.content)
-            new_summary = new_summary.strip()
-            if new_summary:
-                self.running_summary = new_summary
-        except Exception:
-            # If summary fails, keep the run going with deterministic trimming.
-            return self._trim(base_messages)
-
-        compacted = [
-            base_messages[0],
-            self._build_summary_message(),
-            *base_messages[-keep_last:],
-        ]
+        if self.running_summary and base_messages and isinstance(base_messages[0], SystemMessage):
+            compacted = [
+                base_messages[0],
+                self._build_summary_message(),
+                *base_messages[-keep_last:],
+            ]
+        else:
+            compacted = base_messages
 
         if estimate_tokens(compacted) > budget:
             return self._trim(compacted)
