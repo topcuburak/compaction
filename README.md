@@ -44,6 +44,18 @@ Example `.jsonl`:
 {"id":"q2","question":"What is the capital of Japan?","answer":"Tokyo"}
 ```
 
+## Download official BrowseComp data
+
+This repo includes a helper that downloads the official BrowseComp CSV and converts it to the JSONL format expected by this benchmark.
+
+```bash
+python scripts/prepare_browsecomp_dataset.py
+```
+
+This creates:
+- `data/browse_comp_test_set.csv`
+- `data/browsecomp.jsonl`
+
 ## Run one strategy
 
 ```bash
@@ -57,6 +69,18 @@ python run_browsecomp_langchain.py \
 ```
 
 Use `--tool-mode native` only if your server supports OpenAI tool-calling.
+
+Example on official BrowseComp data:
+
+```bash
+python run_browsecomp_langchain.py \
+  --dataset data/browsecomp.jsonl \
+  --strategy summarize \
+  --tool-mode manual \
+  --max-questions 200 \
+  --max-steps 24 \
+  --token-budget 110000
+```
 
 ## Compare all three baseline strategies
 
