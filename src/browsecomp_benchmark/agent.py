@@ -50,6 +50,7 @@ class AgentConfig:
     api_key: str = "EMPTY"
     temperature: float = 0.0
     request_timeout: int = 120
+    max_retries: int = 2
     max_steps: int = 24
     max_search_results: int = 5
     max_result_chars: int = 700
@@ -138,6 +139,7 @@ def build_model(config: AgentConfig) -> ChatOpenAI:
         api_key=config.api_key,
         temperature=config.temperature,
         timeout=config.request_timeout,
+        max_retries=config.max_retries,
     )
 
 

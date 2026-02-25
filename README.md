@@ -110,10 +110,13 @@ python run_browsecomp_langchain.py \
   --strategy summarize \
   --tool-mode manual \
   --max-questions 1266 \
-  --max-steps 24 \
+  --request-timeout 600 \
+  --max-retries 1 \
   --token-budget 110000 \
   --save-over-budget-dataset data/browsecomp_over_110k.jsonl
 ```
+
+For long runs, timeout/errors are logged per question and the benchmark continues.
 
 Then use only that subset for later experiments:
 

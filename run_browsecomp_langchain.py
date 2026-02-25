@@ -44,6 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", type=str, default=os.getenv("OPENAI_BASE_URL", "http://localhost:8000/v1"))
     parser.add_argument("--api-key", type=str, default=os.getenv("OPENAI_API_KEY", "EMPTY"))
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--request-timeout", type=int, default=int(os.getenv("REQUEST_TIMEOUT", "120")))
+    parser.add_argument("--max-retries", type=int, default=int(os.getenv("MAX_RETRIES", "2")))
     parser.add_argument("--tool-mode", type=str, default=os.getenv("TOOL_MODE", "manual"), choices=["manual", "native"])
 
     parser.add_argument("--token-budget", type=int, default=110_000)
@@ -96,6 +98,8 @@ def main() -> None:
         base_url=args.base_url,
         api_key=args.api_key,
         temperature=args.temperature,
+        request_timeout=args.request_timeout,
+        max_retries=args.max_retries,
         tool_mode=args.tool_mode,
         max_steps=args.max_steps,
         max_search_results=args.max_search_results,
@@ -119,19 +123,49 @@ def main() -> None:
     kept_rows = 0
     filtered_out = 0
     over_budget_examples: list[dict[str, str]] = []
+    num_errors = 0
 
     with rows_path.open("w", encoding="utf-8") as rows_file:
         for example in tqdm(selected, desc=f"Running {args.strategy}"):
             compactor = ConversationCompactor(compaction_config)
 
             start = time.perf_counter()
-            run = run_browsecomp_question(
-                question_id=example.id,
-                question=example.question,
-                config=agent_config,
-                compactor=compactor,
-            )
-            latency = time.perf_counter() - start
+            try:
+                run = run_browsecomp_question(
+                    question_id=example.id,
+                    question=example.question,
+                    config=agent_config,
+                    compactor=compactor,
+                )
+                latency = time.perf_counter() - start
+            except Exception as exc:
+                latency = time.perf_counter() - start
+                num_errors += 1
+
+                if args.only_over_budget:
+                    filtered_out += 1
+                    continue
+
+                error_row = {
+                    "id": example.id,
+                    "question": example.question,
+                    "gold": example.answer,
+                    "prediction": "",
+                    "exact_match": None,
+                    "steps": 0,
+                    "tool_calls": 0,
+                    "context_tokens_est": 0,
+                    "max_context_tokens_est": 0,
+                    "crossed_token_budget": False,
+                    "finished_reason": "error",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc).replace("\n", " ")[:1000],
+                    "latency_sec": round(latency, 3),
+                    "strategy": args.strategy,
+                    "kept_for_summary": False,
+                }
+                rows_file.write(json.dumps(error_row, ensure_ascii=True) + "\n")
+                continue
 
             is_over_budget = run.max_context_tokens_est > over_budget_threshold
             keep_row = (not args.only_over_budget) or (run.max_context_tokens_est > over_budget_threshold)
@@ -194,9 +228,12 @@ def main() -> None:
         "num_examples_kept": kept_rows,
         "num_examples_filtered_out": filtered_out,
         "num_examples_over_budget": len(over_budget_examples),
+        "num_errors": num_errors,
         "strategy": args.strategy,
         "model": args.model,
         "base_url": args.base_url,
+        "request_timeout": args.request_timeout,
+        "max_retries": args.max_retries,
         "tool_mode": args.tool_mode,
         "only_over_budget": args.only_over_budget,
         "over_budget_threshold": over_budget_threshold,
