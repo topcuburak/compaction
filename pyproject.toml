@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "browsecomp-langchain-benchmark"
+version = "0.1.0"
+description = "LangChain benchmark harness for BrowseComp-style long-horizon QA with compaction"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "duckduckgo-search>=6.3.0",
+  "langchain>=0.3.0",
+  "langchain-openai>=0.2.0",
+  "python-dotenv>=1.0.1",
+  "tqdm>=4.66.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
