@@ -84,6 +84,24 @@ python run_browsecomp_langchain.py \
   --token-budget 110000
 ```
 
+Evaluate only high-context cases (where trajectory peak tokens exceed 110k):
+
+```bash
+python run_browsecomp_langchain.py \
+  --dataset data/browsecomp.jsonl \
+  --strategy summarize \
+  --tool-mode manual \
+  --max-questions 200 \
+  --max-steps 24 \
+  --token-budget 110000 \
+  --only-over-budget \
+  --over-budget-threshold 110000
+```
+
+`rows.jsonl` includes both:
+- `context_tokens_est`: estimated tokens at finish
+- `max_context_tokens_est`: peak estimated tokens during the trajectory
+
 ## Compare all three baseline strategies
 
 ```bash

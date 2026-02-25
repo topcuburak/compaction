@@ -24,6 +24,12 @@ from browsecomp_benchmark.dataset import load_browsecomp_dataset
 from browsecomp_benchmark.metrics import exact_match_score
 
 
+def _mean_or_none(values: list[float] | list[int]) -> float | None:
+    if not values:
+        return None
+    return float(statistics.mean(values))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark compaction strategies on BrowseComp-style long-horizon QA using LangChain"
@@ -46,6 +52,17 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--max-search-results", type=int, default=5)
     parser.add_argument("--max-result-chars", type=int, default=700)
+    parser.add_argument(
+        "--only-over-budget",
+        action="store_true",
+        help="Keep/evaluate only rows where max_context_tokens_est exceeds a threshold",
+    )
+    parser.add_argument(
+        "--over-budget-threshold",
+        type=int,
+        default=None,
+        help="Threshold for --only-over-budget (defaults to --token-budget)",
+    )
 
     parser.add_argument("--output-dir", type=str, default="")
     return parser.parse_args()
@@ -85,12 +102,16 @@ def main() -> None:
         keep_last_messages=args.keep_last_messages,
         summary_trigger_ratio=args.summary_trigger_ratio,
     )
+    over_budget_threshold = args.over_budget_threshold or args.token_budget
 
     scores: list[float] = []
     steps_list: list[int] = []
     tool_calls_list: list[int] = []
     token_est_list: list[int] = []
+    max_token_est_list: list[int] = []
     latency_list: list[float] = []
+    kept_rows = 0
+    filtered_out = 0
 
     with rows_path.open("w", encoding="utf-8") as rows_file:
         for example in tqdm(selected, desc=f"Running {args.strategy}"):
@@ -105,15 +126,22 @@ def main() -> None:
             )
             latency = time.perf_counter() - start
 
+            keep_row = (not args.only_over_budget) or (run.max_context_tokens_est > over_budget_threshold)
             score = None
             if example.answer is not None:
                 score = exact_match_score(run.final_answer, example.answer)
-                scores.append(score)
+                if keep_row:
+                    scores.append(score)
 
-            steps_list.append(run.steps)
-            tool_calls_list.append(run.tool_calls)
-            token_est_list.append(run.context_tokens_est)
-            latency_list.append(latency)
+            if keep_row:
+                kept_rows += 1
+                steps_list.append(run.steps)
+                tool_calls_list.append(run.tool_calls)
+                token_est_list.append(run.context_tokens_est)
+                max_token_est_list.append(run.max_context_tokens_est)
+                latency_list.append(latency)
+            else:
+                filtered_out += 1
 
             row = {
                 "id": example.id,
@@ -124,24 +152,33 @@ def main() -> None:
                 "steps": run.steps,
                 "tool_calls": run.tool_calls,
                 "context_tokens_est": run.context_tokens_est,
+                "max_context_tokens_est": run.max_context_tokens_est,
+                "crossed_token_budget": run.crossed_token_budget,
                 "finished_reason": run.finished_reason,
                 "latency_sec": round(latency, 3),
                 "strategy": args.strategy,
+                "kept_for_summary": keep_row,
             }
-            rows_file.write(json.dumps(row, ensure_ascii=True) + "\n")
+            if keep_row:
+                rows_file.write(json.dumps(row, ensure_ascii=True) + "\n")
 
     summary = {
         "dataset": str(Path(args.dataset).resolve()),
-        "num_examples": len(selected),
+        "num_examples_total": len(selected),
+        "num_examples_kept": kept_rows,
+        "num_examples_filtered_out": filtered_out,
         "strategy": args.strategy,
         "model": args.model,
         "base_url": args.base_url,
         "tool_mode": args.tool_mode,
-        "accuracy_exact_match": (statistics.mean(scores) if scores else None),
-        "avg_steps": statistics.mean(steps_list),
-        "avg_tool_calls": statistics.mean(tool_calls_list),
-        "avg_context_tokens_est": statistics.mean(token_est_list),
-        "avg_latency_sec": statistics.mean(latency_list),
+        "only_over_budget": args.only_over_budget,
+        "over_budget_threshold": over_budget_threshold,
+        "accuracy_exact_match": _mean_or_none(scores),
+        "avg_steps": _mean_or_none(steps_list),
+        "avg_tool_calls": _mean_or_none(tool_calls_list),
+        "avg_context_tokens_est": _mean_or_none(token_est_list),
+        "avg_max_context_tokens_est": _mean_or_none(max_token_est_list),
+        "avg_latency_sec": _mean_or_none(latency_list),
         "rows_path": str(rows_path.resolve()),
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }

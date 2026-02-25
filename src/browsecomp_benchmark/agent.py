@@ -64,6 +64,8 @@ class QuestionRunResult:
     steps: int
     tool_calls: int
     context_tokens_est: int
+    max_context_tokens_est: int
+    crossed_token_budget: bool
     finished_reason: str
 
 
@@ -95,6 +97,10 @@ def _extract_search_query(content: object) -> str | None:
     if not query:
         return None
     return query.splitlines()[0].strip()
+
+
+def _update_peak_tokens(messages: list[BaseMessage], current_peak: int) -> int:
+    return max(current_peak, estimate_tokens(messages))
 
 
 def _build_search_tool(max_results: int, max_result_chars: int) -> StructuredTool:
@@ -144,21 +150,31 @@ def _run_with_native_tools(
     compactor: ConversationCompactor,
 ) -> QuestionRunResult:
     llm_with_tools = llm.bind_tools([search_tool])
+    token_budget = compactor.config.token_budget
 
     messages: list[BaseMessage] = [
         SystemMessage(content=SYSTEM_PROMPT_NATIVE),
         HumanMessage(content=f"Question: {question}"),
     ]
     tool_calls = 0
+    max_tokens = estimate_tokens(messages)
+    crossed_budget = max_tokens > token_budget
 
     for step in range(1, config.max_steps + 1):
+        pre_compaction_tokens = estimate_tokens(messages)
+        max_tokens = max(max_tokens, pre_compaction_tokens)
+        crossed_budget = crossed_budget or pre_compaction_tokens > token_budget
         messages = compactor.compact(messages, summarizer=llm)
+        max_tokens = _update_peak_tokens(messages, max_tokens)
+        crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
         ai_message = llm_with_tools.invoke(messages)
         if not isinstance(ai_message, AIMessage):
             ai_message = AIMessage(content=_content_to_text(ai_message))
 
         messages.append(ai_message)
+        max_tokens = _update_peak_tokens(messages, max_tokens)
+        crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
         if ai_message.tool_calls:
             for call in ai_message.tool_calls:
@@ -179,6 +195,8 @@ def _run_with_native_tools(
 
                 tool_calls += 1
                 messages.append(ToolMessage(content=observation, tool_call_id=tool_call_id))
+                max_tokens = _update_peak_tokens(messages, max_tokens)
+                crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
             continue
 
@@ -191,6 +209,8 @@ def _run_with_native_tools(
                 steps=step,
                 tool_calls=tool_calls,
                 context_tokens_est=estimate_tokens(messages),
+                max_context_tokens_est=max_tokens,
+                crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
             )
 
@@ -202,12 +222,16 @@ def _run_with_native_tools(
                 )
             )
         )
+        max_tokens = _update_peak_tokens(messages, max_tokens)
+        crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
     messages.append(
         HumanMessage(
             content="Stop searching and provide your best final output as 'FINAL_ANSWER: <short answer>'."
         )
     )
+    max_tokens = _update_peak_tokens(messages, max_tokens)
+    crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
     forced = llm.invoke(messages)
     final = _extract_final_answer(forced.content)
@@ -222,6 +246,8 @@ def _run_with_native_tools(
         steps=config.max_steps,
         tool_calls=tool_calls,
         context_tokens_est=estimate_tokens(messages),
+        max_context_tokens_est=max_tokens,
+        crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
     )
 
@@ -234,20 +260,30 @@ def _run_with_manual_actions(
     config: AgentConfig,
     compactor: ConversationCompactor,
 ) -> QuestionRunResult:
+    token_budget = compactor.config.token_budget
     messages: list[BaseMessage] = [
         SystemMessage(content=SYSTEM_PROMPT_MANUAL),
         HumanMessage(content=f"Question: {question}"),
     ]
     tool_calls = 0
+    max_tokens = estimate_tokens(messages)
+    crossed_budget = max_tokens > token_budget
 
     for step in range(1, config.max_steps + 1):
+        pre_compaction_tokens = estimate_tokens(messages)
+        max_tokens = max(max_tokens, pre_compaction_tokens)
+        crossed_budget = crossed_budget or pre_compaction_tokens > token_budget
         messages = compactor.compact(messages, summarizer=llm)
+        max_tokens = _update_peak_tokens(messages, max_tokens)
+        crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
         ai_message = llm.invoke(messages)
         if not isinstance(ai_message, AIMessage):
             ai_message = AIMessage(content=_content_to_text(ai_message))
 
         messages.append(ai_message)
+        max_tokens = _update_peak_tokens(messages, max_tokens)
+        crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
         final = _extract_final_answer(ai_message.content)
         if final:
@@ -258,6 +294,8 @@ def _run_with_manual_actions(
                 steps=step,
                 tool_calls=tool_calls,
                 context_tokens_est=estimate_tokens(messages),
+                max_context_tokens_est=max_tokens,
+                crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
             )
 
@@ -279,6 +317,8 @@ def _run_with_manual_actions(
                     )
                 )
             )
+            max_tokens = _update_peak_tokens(messages, max_tokens)
+            crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
             continue
 
         messages.append(
@@ -291,6 +331,8 @@ def _run_with_manual_actions(
                 )
             )
         )
+        max_tokens = _update_peak_tokens(messages, max_tokens)
+        crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
     messages.append(
         HumanMessage(
@@ -300,6 +342,8 @@ def _run_with_manual_actions(
             )
         )
     )
+    max_tokens = _update_peak_tokens(messages, max_tokens)
+    crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
     forced = llm.invoke(messages)
     final = _extract_final_answer(forced.content)
@@ -314,6 +358,8 @@ def _run_with_manual_actions(
         steps=config.max_steps,
         tool_calls=tool_calls,
         context_tokens_est=estimate_tokens(messages),
+        max_context_tokens_est=max_tokens,
+        crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
     )
 
