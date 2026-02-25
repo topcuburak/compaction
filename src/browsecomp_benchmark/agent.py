@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from .compaction import ConversationCompactor, estimate_tokens
 
 
-SYSTEM_PROMPT = """You are a persistent web research agent for hard factual QA.
+SYSTEM_PROMPT_NATIVE = """You are a persistent web research agent for hard factual QA.
 
 Process:
 1) Use web_search to gather evidence from multiple sources.
@@ -22,6 +22,20 @@ Process:
 FINAL_ANSWER: <short answer>
 
 Do not output FINAL_ANSWER until you are done searching.
+"""
+
+
+SYSTEM_PROMPT_MANUAL = """You are a persistent web research agent for hard factual QA.
+
+You must output exactly one action per turn in one of these formats:
+- SEARCH: <query>
+- FINAL_ANSWER: <short answer>
+
+Rules:
+1) Use SEARCH to request web evidence.
+2) After receiving search results, either SEARCH again or output FINAL_ANSWER.
+3) Keep answers short and factual.
+4) Do not output any other format.
 """
 
 
@@ -39,6 +53,7 @@ class AgentConfig:
     max_steps: int = 24
     max_search_results: int = 5
     max_result_chars: int = 700
+    tool_mode: str = "manual"  # one of: manual, native
 
 
 @dataclass(slots=True)
@@ -69,6 +84,17 @@ def _extract_final_answer(content: object) -> str | None:
         if first_line:
             return first_line
     return None
+
+
+def _extract_search_query(content: object) -> str | None:
+    text = _content_to_text(content)
+    match = re.search(r"^\s*SEARCH\s*:\s*(.+)$", text, flags=re.IGNORECASE | re.MULTILINE)
+    if not match:
+        return None
+    query = match.group(1).strip()
+    if not query:
+        return None
+    return query.splitlines()[0].strip()
 
 
 def _build_search_tool(max_results: int, max_result_chars: int) -> StructuredTool:
@@ -109,21 +135,20 @@ def build_model(config: AgentConfig) -> ChatOpenAI:
     )
 
 
-def run_browsecomp_question(
+def _run_with_native_tools(
     question_id: str,
     question: str,
+    llm: ChatOpenAI,
+    search_tool: StructuredTool,
     config: AgentConfig,
     compactor: ConversationCompactor,
 ) -> QuestionRunResult:
-    llm = build_model(config)
-    search_tool = _build_search_tool(config.max_search_results, config.max_result_chars)
     llm_with_tools = llm.bind_tools([search_tool])
 
     messages: list[BaseMessage] = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=SYSTEM_PROMPT_NATIVE),
         HumanMessage(content=f"Question: {question}"),
     ]
-
     tool_calls = 0
 
     for step in range(1, config.max_steps + 1):
@@ -199,3 +224,113 @@ def run_browsecomp_question(
         context_tokens_est=estimate_tokens(messages),
         finished_reason="max_steps",
     )
+
+
+def _run_with_manual_actions(
+    question_id: str,
+    question: str,
+    llm: ChatOpenAI,
+    search_tool: StructuredTool,
+    config: AgentConfig,
+    compactor: ConversationCompactor,
+) -> QuestionRunResult:
+    messages: list[BaseMessage] = [
+        SystemMessage(content=SYSTEM_PROMPT_MANUAL),
+        HumanMessage(content=f"Question: {question}"),
+    ]
+    tool_calls = 0
+
+    for step in range(1, config.max_steps + 1):
+        messages = compactor.compact(messages, summarizer=llm)
+
+        ai_message = llm.invoke(messages)
+        if not isinstance(ai_message, AIMessage):
+            ai_message = AIMessage(content=_content_to_text(ai_message))
+
+        messages.append(ai_message)
+
+        final = _extract_final_answer(ai_message.content)
+        if final:
+            return QuestionRunResult(
+                question_id=question_id,
+                question=question,
+                final_answer=final,
+                steps=step,
+                tool_calls=tool_calls,
+                context_tokens_est=estimate_tokens(messages),
+                finished_reason="final_answer",
+            )
+
+        search_query = _extract_search_query(ai_message.content)
+        if search_query:
+            try:
+                observation = search_tool.invoke({"query": search_query})
+            except Exception as exc:
+                observation = f"Tool error: {exc}"
+
+            tool_calls += 1
+            messages.append(
+                HumanMessage(
+                    content=(
+                        "[WEB_SEARCH_RESULTS]\n"
+                        f"Query: {search_query}\n"
+                        f"{observation}\n\n"
+                        "Respond with either SEARCH: <query> or FINAL_ANSWER: <short answer>."
+                    )
+                )
+            )
+            continue
+
+        messages.append(
+            HumanMessage(
+                content=(
+                    "Invalid format. Respond with exactly one action line:\n"
+                    "SEARCH: <query>\n"
+                    "or\n"
+                    "FINAL_ANSWER: <short answer>"
+                )
+            )
+        )
+
+    messages.append(
+        HumanMessage(
+            content=(
+                "Stop searching and give your best response in exactly this format:\n"
+                "FINAL_ANSWER: <short answer>"
+            )
+        )
+    )
+
+    forced = llm.invoke(messages)
+    final = _extract_final_answer(forced.content)
+    if not final:
+        fallback = _content_to_text(forced.content).strip()
+        final = fallback.splitlines()[0].strip() if fallback else ""
+
+    return QuestionRunResult(
+        question_id=question_id,
+        question=question,
+        final_answer=final,
+        steps=config.max_steps,
+        tool_calls=tool_calls,
+        context_tokens_est=estimate_tokens(messages),
+        finished_reason="max_steps",
+    )
+
+
+def run_browsecomp_question(
+    question_id: str,
+    question: str,
+    config: AgentConfig,
+    compactor: ConversationCompactor,
+) -> QuestionRunResult:
+    llm = build_model(config)
+    search_tool = _build_search_tool(config.max_search_results, config.max_result_chars)
+
+    mode = config.tool_mode.lower().strip()
+    if mode == "native":
+        return _run_with_native_tools(question_id, question, llm, search_tool, config, compactor)
+    if mode == "manual":
+        return _run_with_manual_actions(question_id, question, llm, search_tool, config, compactor)
+
+    raise ValueError(f"Unknown tool mode: {config.tool_mode}. Use 'manual' or 'native'.")

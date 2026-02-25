@@ -9,6 +9,7 @@ COMMON_ARGS=(
   --model "${MODEL_NAME:-meta-llama/Meta-Llama-3.1-8B-Instruct}"
   --base-url "${OPENAI_BASE_URL:-http://localhost:8000/v1}"
   --api-key "${OPENAI_API_KEY:-EMPTY}"
+  --tool-mode "${TOOL_MODE:-manual}"
 )
 
 python run_browsecomp_langchain.py "${COMMON_ARGS[@]}" --strategy none

@@ -11,6 +11,9 @@ Implemented compaction strategies:
 
 - ReAct-style tool loop with web search (`web_search` via DuckDuckGo)
 - Pluggable compaction strategy (`--strategy`)
+- Two tool execution modes (`--tool-mode`):
+- `manual` (default): model emits `SEARCH: ...` / `FINAL_ANSWER: ...`; works with standard vLLM chat endpoints
+- `native`: OpenAI-style tool-calling (`tools`); requires vLLM tool-call support flags
 - Per-question logs (`rows.jsonl`) and aggregate metrics (`summary.json`)
 - Exact-match evaluation when gold answers are present
 
@@ -47,10 +50,13 @@ Example `.jsonl`:
 python run_browsecomp_langchain.py \
   --dataset data/sample_browsecomp.jsonl \
   --strategy summarize \
+  --tool-mode manual \
   --max-questions 10 \
   --max-steps 24 \
   --token-budget 110000
 ```
+
+Use `--tool-mode native` only if your server supports OpenAI tool-calling.
 
 ## Compare all three baseline strategies
 

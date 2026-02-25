@@ -38,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", type=str, default=os.getenv("OPENAI_BASE_URL", "http://localhost:8000/v1"))
     parser.add_argument("--api-key", type=str, default=os.getenv("OPENAI_API_KEY", "EMPTY"))
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--tool-mode", type=str, default=os.getenv("TOOL_MODE", "manual"), choices=["manual", "native"])
 
     parser.add_argument("--token-budget", type=int, default=110_000)
     parser.add_argument("--keep-last-messages", type=int, default=12)
@@ -72,6 +73,7 @@ def main() -> None:
         base_url=args.base_url,
         api_key=args.api_key,
         temperature=args.temperature,
+        tool_mode=args.tool_mode,
         max_steps=args.max_steps,
         max_search_results=args.max_search_results,
         max_result_chars=args.max_result_chars,
@@ -134,6 +136,7 @@ def main() -> None:
         "strategy": args.strategy,
         "model": args.model,
         "base_url": args.base_url,
+        "tool_mode": args.tool_mode,
         "accuracy_exact_match": (statistics.mean(scores) if scores else None),
         "avg_steps": statistics.mean(steps_list),
         "avg_tool_calls": statistics.mean(tool_calls_list),
