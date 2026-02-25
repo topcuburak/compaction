@@ -102,6 +102,30 @@ python run_browsecomp_langchain.py \
 - `context_tokens_est`: estimated tokens at finish
 - `max_context_tokens_est`: peak estimated tokens during the trajectory
 
+Build a reusable long-context subset dataset (one full pass, then reuse):
+
+```bash
+python run_browsecomp_langchain.py \
+  --dataset data/browsecomp.jsonl \
+  --strategy summarize \
+  --tool-mode manual \
+  --max-questions 1266 \
+  --max-steps 24 \
+  --token-budget 110000 \
+  --save-over-budget-dataset data/browsecomp_over_110k.jsonl
+```
+
+Then use only that subset for later experiments:
+
+```bash
+python run_browsecomp_langchain.py \
+  --dataset data/browsecomp_over_110k.jsonl \
+  --strategy trim \
+  --tool-mode manual \
+  --max-steps 24 \
+  --token-budget 110000
+```
+
 ## Compare all three baseline strategies
 
 ```bash

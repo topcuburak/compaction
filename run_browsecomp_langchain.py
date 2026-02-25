@@ -63,6 +63,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Threshold for --only-over-budget (defaults to --token-budget)",
     )
+    parser.add_argument(
+        "--save-over-budget-dataset",
+        type=str,
+        default="",
+        help="Optional path to save dataset rows whose peak tokens exceed threshold",
+    )
 
     parser.add_argument("--output-dir", type=str, default="")
     return parser.parse_args()
@@ -112,6 +118,7 @@ def main() -> None:
     latency_list: list[float] = []
     kept_rows = 0
     filtered_out = 0
+    over_budget_examples: list[dict[str, str]] = []
 
     with rows_path.open("w", encoding="utf-8") as rows_file:
         for example in tqdm(selected, desc=f"Running {args.strategy}"):
@@ -126,7 +133,17 @@ def main() -> None:
             )
             latency = time.perf_counter() - start
 
+            is_over_budget = run.max_context_tokens_est > over_budget_threshold
             keep_row = (not args.only_over_budget) or (run.max_context_tokens_est > over_budget_threshold)
+            if is_over_budget:
+                subset_record: dict[str, str] = {
+                    "id": example.id,
+                    "question": example.question,
+                }
+                if example.answer is not None:
+                    subset_record["answer"] = example.answer
+                over_budget_examples.append(subset_record)
+
             score = None
             if example.answer is not None:
                 score = exact_match_score(run.final_answer, example.answer)
@@ -162,17 +179,28 @@ def main() -> None:
             if keep_row:
                 rows_file.write(json.dumps(row, ensure_ascii=True) + "\n")
 
+    over_budget_dataset_path = None
+    if args.save_over_budget_dataset:
+        output_subset_path = Path(args.save_over_budget_dataset)
+        output_subset_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_subset_path.open("w", encoding="utf-8") as subset_file:
+            for record in over_budget_examples:
+                subset_file.write(json.dumps(record, ensure_ascii=True) + "\n")
+        over_budget_dataset_path = str(output_subset_path.resolve())
+
     summary = {
         "dataset": str(Path(args.dataset).resolve()),
         "num_examples_total": len(selected),
         "num_examples_kept": kept_rows,
         "num_examples_filtered_out": filtered_out,
+        "num_examples_over_budget": len(over_budget_examples),
         "strategy": args.strategy,
         "model": args.model,
         "base_url": args.base_url,
         "tool_mode": args.tool_mode,
         "only_over_budget": args.only_over_budget,
         "over_budget_threshold": over_budget_threshold,
+        "over_budget_dataset_path": over_budget_dataset_path,
         "accuracy_exact_match": _mean_or_none(scores),
         "avg_steps": _mean_or_none(steps_list),
         "avg_tool_calls": _mean_or_none(tool_calls_list),
