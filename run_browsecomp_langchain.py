@@ -71,6 +71,12 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional path to save dataset rows whose peak tokens exceed threshold",
     )
+    parser.add_argument(
+        "--stop-after-over-budget",
+        type=int,
+        default=0,
+        help="Stop execution after finding this many over-budget samples (0 disables early stop)",
+    )
 
     parser.add_argument("--output-dir", type=str, default="")
     return parser.parse_args()
@@ -124,9 +130,13 @@ def main() -> None:
     filtered_out = 0
     over_budget_examples: list[dict[str, str]] = []
     num_errors = 0
+    num_examples_processed = 0
+    stopped_early = False
+    stop_reason = ""
 
     with rows_path.open("w", encoding="utf-8") as rows_file:
         for example in tqdm(selected, desc=f"Running {args.strategy}"):
+            num_examples_processed += 1
             compactor = ConversationCompactor(compaction_config)
 
             start = time.perf_counter()
@@ -213,6 +223,13 @@ def main() -> None:
             if keep_row:
                 rows_file.write(json.dumps(row, ensure_ascii=True) + "\n")
 
+            if args.stop_after_over_budget > 0 and len(over_budget_examples) >= args.stop_after_over_budget:
+                stopped_early = True
+                stop_reason = (
+                    f"reached_over_budget_target:{args.stop_after_over_budget}"
+                )
+                break
+
     over_budget_dataset_path = None
     if args.save_over_budget_dataset:
         output_subset_path = Path(args.save_over_budget_dataset)
@@ -225,10 +242,14 @@ def main() -> None:
     summary = {
         "dataset": str(Path(args.dataset).resolve()),
         "num_examples_total": len(selected),
+        "num_examples_processed": num_examples_processed,
         "num_examples_kept": kept_rows,
         "num_examples_filtered_out": filtered_out,
         "num_examples_over_budget": len(over_budget_examples),
         "num_errors": num_errors,
+        "stop_after_over_budget": args.stop_after_over_budget,
+        "stopped_early": stopped_early,
+        "stop_reason": stop_reason or None,
         "strategy": args.strategy,
         "model": args.model,
         "base_url": args.base_url,

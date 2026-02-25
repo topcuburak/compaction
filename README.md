@@ -129,6 +129,19 @@ python run_browsecomp_langchain.py \
   --token-budget 110000
 ```
 
+Find the first 5 long-context samples (>110k) and stop:
+
+```bash
+python run_browsecomp_langchain.py \
+  --dataset data/browsecomp.jsonl \
+  --strategy summarize \
+  --tool-mode manual \
+  --token-budget 110000 \
+  --over-budget-threshold 110000 \
+  --stop-after-over-budget 5 \
+  --save-over-budget-dataset data/browsecomp_over_110k_first5.jsonl
+```
+
 ## Compare all three baseline strategies
 
 ```bash
