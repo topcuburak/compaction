@@ -77,6 +77,11 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Stop execution after finding this many over-budget samples (0 disables early stop)",
     )
+    parser.add_argument(
+        "--print-request-context-lengths",
+        action="store_true",
+        help="Print per-request context token estimates for each processed question",
+    )
 
     parser.add_argument("--output-dir", type=str, default="")
     return parser.parse_args()
@@ -126,6 +131,7 @@ def main() -> None:
     token_est_list: list[int] = []
     max_token_est_list: list[int] = []
     latency_list: list[float] = []
+    all_request_token_lengths: list[int] = []
     kept_rows = 0
     filtered_out = 0
     over_budget_examples: list[dict[str, str]] = []
@@ -166,6 +172,7 @@ def main() -> None:
                     "tool_calls": 0,
                     "context_tokens_est": 0,
                     "max_context_tokens_est": 0,
+                    "request_context_tokens_est": [],
                     "crossed_token_budget": False,
                     "finished_reason": "error",
                     "error_type": type(exc).__name__,
@@ -200,6 +207,7 @@ def main() -> None:
                 tool_calls_list.append(run.tool_calls)
                 token_est_list.append(run.context_tokens_est)
                 max_token_est_list.append(run.max_context_tokens_est)
+                all_request_token_lengths.extend(run.request_context_tokens_est)
                 latency_list.append(latency)
             else:
                 filtered_out += 1
@@ -214,6 +222,7 @@ def main() -> None:
                 "tool_calls": run.tool_calls,
                 "context_tokens_est": run.context_tokens_est,
                 "max_context_tokens_est": run.max_context_tokens_est,
+                "request_context_tokens_est": run.request_context_tokens_est,
                 "crossed_token_budget": run.crossed_token_budget,
                 "finished_reason": run.finished_reason,
                 "latency_sec": round(latency, 3),
@@ -222,6 +231,16 @@ def main() -> None:
             }
             if keep_row:
                 rows_file.write(json.dumps(row, ensure_ascii=True) + "\n")
+                if args.print_request_context_lengths:
+                    print(
+                        json.dumps(
+                            {
+                                "id": example.id,
+                                "request_context_tokens_est": run.request_context_tokens_est,
+                            },
+                            ensure_ascii=True,
+                        )
+                    )
 
             if args.stop_after_over_budget > 0 and len(over_budget_examples) >= args.stop_after_over_budget:
                 stopped_early = True
@@ -264,6 +283,8 @@ def main() -> None:
         "avg_tool_calls": _mean_or_none(tool_calls_list),
         "avg_context_tokens_est": _mean_or_none(token_est_list),
         "avg_max_context_tokens_est": _mean_or_none(max_token_est_list),
+        "avg_request_context_tokens_est": _mean_or_none(all_request_token_lengths),
+        "max_request_context_tokens_est": max(all_request_token_lengths, default=0),
         "avg_latency_sec": _mean_or_none(latency_list),
         "rows_path": str(rows_path.resolve()),
         "created_at": datetime.now().isoformat(timespec="seconds"),

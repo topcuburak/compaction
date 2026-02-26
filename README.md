@@ -101,6 +101,13 @@ python run_browsecomp_langchain.py \
 `rows.jsonl` includes both:
 - `context_tokens_est`: estimated tokens at finish
 - `max_context_tokens_est`: peak estimated tokens during the trajectory
+- `request_context_tokens_est`: per-request token estimates (one value per model call)
+
+To print request-context lengths live during execution:
+
+```bash
+python run_browsecomp_langchain.py ... --print-request-context-lengths
+```
 
 Build a reusable long-context subset dataset (one full pass, then reuse):
 

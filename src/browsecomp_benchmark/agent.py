@@ -69,6 +69,7 @@ class QuestionRunResult:
     tool_calls: int
     context_tokens_est: int
     max_context_tokens_est: int
+    request_context_tokens_est: list[int]
     crossed_token_budget: bool
     finished_reason: str
 
@@ -163,6 +164,7 @@ def _run_with_native_tools(
     ]
     tool_calls = 0
     max_tokens = estimate_tokens(messages)
+    request_context_tokens: list[int] = []
     crossed_budget = max_tokens > token_budget
 
     for step in range(1, config.max_steps + 1):
@@ -173,6 +175,7 @@ def _run_with_native_tools(
         max_tokens = _update_peak_tokens(messages, max_tokens)
         crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
+        request_context_tokens.append(estimate_tokens(messages))
         ai_message = llm_with_tools.invoke(messages)
         if not isinstance(ai_message, AIMessage):
             ai_message = AIMessage(content=_content_to_text(ai_message))
@@ -215,6 +218,7 @@ def _run_with_native_tools(
                 tool_calls=tool_calls,
                 context_tokens_est=estimate_tokens(messages),
                 max_context_tokens_est=max_tokens,
+                request_context_tokens_est=request_context_tokens,
                 crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
             )
@@ -238,6 +242,7 @@ def _run_with_native_tools(
     max_tokens = _update_peak_tokens(messages, max_tokens)
     crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
+    request_context_tokens.append(estimate_tokens(messages))
     forced = llm.invoke(messages)
     final = _extract_final_answer(forced.content)
     if not final:
@@ -252,6 +257,7 @@ def _run_with_native_tools(
         tool_calls=tool_calls,
         context_tokens_est=estimate_tokens(messages),
         max_context_tokens_est=max_tokens,
+        request_context_tokens_est=request_context_tokens,
         crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
     )
@@ -272,6 +278,7 @@ def _run_with_manual_actions(
     ]
     tool_calls = 0
     max_tokens = estimate_tokens(messages)
+    request_context_tokens: list[int] = []
     crossed_budget = max_tokens > token_budget
 
     for step in range(1, config.max_steps + 1):
@@ -282,6 +289,7 @@ def _run_with_manual_actions(
         max_tokens = _update_peak_tokens(messages, max_tokens)
         crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
+        request_context_tokens.append(estimate_tokens(messages))
         ai_message = llm.invoke(messages)
         if not isinstance(ai_message, AIMessage):
             ai_message = AIMessage(content=_content_to_text(ai_message))
@@ -300,6 +308,7 @@ def _run_with_manual_actions(
                 tool_calls=tool_calls,
                 context_tokens_est=estimate_tokens(messages),
                 max_context_tokens_est=max_tokens,
+                request_context_tokens_est=request_context_tokens,
                 crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
             )
@@ -350,6 +359,7 @@ def _run_with_manual_actions(
     max_tokens = _update_peak_tokens(messages, max_tokens)
     crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
+    request_context_tokens.append(estimate_tokens(messages))
     forced = llm.invoke(messages)
     final = _extract_final_answer(forced.content)
     if not final:
@@ -364,6 +374,7 @@ def _run_with_manual_actions(
         tool_calls=tool_calls,
         context_tokens_est=estimate_tokens(messages),
         max_context_tokens_est=max_tokens,
+        request_context_tokens_est=request_context_tokens,
         crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
     )
