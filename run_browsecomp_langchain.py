@@ -89,6 +89,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print per-request context token estimates for each processed question",
     )
+    parser.add_argument(
+        "--save-long-requests",
+        type=str,
+        default="",
+        help="Optional path to save individual request events whose context tokens exceed threshold",
+    )
+    parser.add_argument(
+        "--stop-after-long-requests",
+        type=int,
+        default=0,
+        help="Stop execution after finding this many individual over-threshold requests (0 disables early stop)",
+    )
 
     parser.add_argument("--output-dir", type=str, default="")
     return parser.parse_args()
@@ -142,6 +154,7 @@ def main() -> None:
     kept_rows = 0
     filtered_out = 0
     over_budget_examples: list[dict[str, str]] = []
+    long_request_records: list[dict[str, object]] = []
     num_errors = 0
     num_examples_processed = 0
     stopped_early = False
@@ -181,6 +194,7 @@ def main() -> None:
                     "max_context_tokens_est": 0,
                     "request_context_tokens_est": [],
                     "max_request_context_tokens_est": 0,
+                    "long_request_hits": [],
                     "crossed_token_budget": False,
                     "finished_reason": "error",
                     "error_type": type(exc).__name__,
@@ -227,6 +241,19 @@ def main() -> None:
             else:
                 filtered_out += 1
 
+            long_request_hits = []
+            for request_index, tokens_est in enumerate(run.request_context_tokens_est, start=1):
+                if tokens_est > over_budget_threshold:
+                    hit = {
+                        "id": example.id,
+                        "question": example.question,
+                        "request_index": request_index,
+                        "request_context_tokens_est": tokens_est,
+                        "over_budget_threshold": over_budget_threshold,
+                    }
+                    long_request_hits.append(hit)
+                    long_request_records.append(hit)
+
             row = {
                 "id": example.id,
                 "question": example.question,
@@ -239,6 +266,7 @@ def main() -> None:
                 "max_context_tokens_est": run.max_context_tokens_est,
                 "request_context_tokens_est": run.request_context_tokens_est,
                 "max_request_context_tokens_est": run.max_request_context_tokens_est,
+                "long_request_hits": long_request_hits,
                 "crossed_token_budget": run.crossed_token_budget,
                 "finished_reason": run.finished_reason,
                 "latency_sec": round(latency, 3),
@@ -266,6 +294,12 @@ def main() -> None:
                     f"reached_over_budget_target:{args.stop_after_over_budget}"
                 )
                 break
+            if args.stop_after_long_requests > 0 and len(long_request_records) >= args.stop_after_long_requests:
+                stopped_early = True
+                stop_reason = (
+                    f"reached_long_request_target:{args.stop_after_long_requests}"
+                )
+                break
 
     over_budget_dataset_path = None
     if args.save_over_budget_dataset:
@@ -276,6 +310,15 @@ def main() -> None:
                 subset_file.write(json.dumps(record, ensure_ascii=True) + "\n")
         over_budget_dataset_path = str(output_subset_path.resolve())
 
+    long_requests_path = None
+    if args.save_long_requests:
+        output_long_requests_path = Path(args.save_long_requests)
+        output_long_requests_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_long_requests_path.open("w", encoding="utf-8") as long_requests_file:
+            for record in long_request_records:
+                long_requests_file.write(json.dumps(record, ensure_ascii=True) + "\n")
+        long_requests_path = str(output_long_requests_path.resolve())
+
     summary = {
         "dataset": str(Path(args.dataset).resolve()),
         "num_examples_total": len(selected),
@@ -283,8 +326,10 @@ def main() -> None:
         "num_examples_kept": kept_rows,
         "num_examples_filtered_out": filtered_out,
         "num_examples_over_budget": len(over_budget_examples),
+        "num_long_requests_over_threshold": len(long_request_records),
         "num_errors": num_errors,
         "stop_after_over_budget": args.stop_after_over_budget,
+        "stop_after_long_requests": args.stop_after_long_requests,
         "stopped_early": stopped_early,
         "stop_reason": stop_reason or None,
         "strategy": args.strategy,
@@ -297,6 +342,7 @@ def main() -> None:
         "over_budget_threshold": over_budget_threshold,
         "length_metric": args.length_metric,
         "over_budget_dataset_path": over_budget_dataset_path,
+        "long_requests_path": long_requests_path,
         "accuracy_exact_match": _mean_or_none(scores),
         "avg_steps": _mean_or_none(steps_list),
         "avg_tool_calls": _mean_or_none(tool_calls_list),

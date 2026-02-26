@@ -153,6 +153,19 @@ python run_browsecomp_langchain.py \
 `--length-metric request` uses max per-request context length.  
 Use `--length-metric trajectory` to use trajectory-wide peak context length.
 
+Save individual long requests (not just samples):
+
+```bash
+python run_browsecomp_langchain.py \
+  --dataset data/browsecomp.jsonl \
+  --strategy summarize \
+  --tool-mode manual \
+  --token-budget 110000 \
+  --over-budget-threshold 110000 \
+  --save-long-requests data/long_requests_over_110k.jsonl \
+  --stop-after-long-requests 5
+```
+
 ## Compare all three baseline strategies
 
 ```bash
