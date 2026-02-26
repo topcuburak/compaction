@@ -9,7 +9,7 @@ description = "LangChain benchmark harness for BrowseComp-style long-horizon QA 
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "duckduckgo-search>=6.3.0",
+  "ddgs>=9.0.0",
   "langchain>=0.3.0",
   "langchain-openai>=0.2.0",
   "python-dotenv>=1.0.1",

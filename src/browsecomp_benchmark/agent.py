@@ -3,7 +3,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS
+except ImportError:  # Backward compatibility for older environments.
+    from duckduckgo_search import DDGS
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
