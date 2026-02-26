@@ -134,6 +134,7 @@ def main() -> None:
         max_steps=args.max_steps,
         max_search_results=args.max_search_results,
         max_result_chars=args.max_result_chars,
+        print_context_lengths=args.print_request_context_lengths,
     )
 
     compaction_config = CompactionConfig(

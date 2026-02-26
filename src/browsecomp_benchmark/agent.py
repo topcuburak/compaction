@@ -58,6 +58,7 @@ class AgentConfig:
     max_search_results: int = 5
     max_result_chars: int = 700
     tool_mode: str = "manual"  # one of: manual, native
+    print_context_lengths: bool = False
 
 
 @dataclass(slots=True)
@@ -177,6 +178,8 @@ def _run_with_native_tools(
         crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
         request_context_tokens.append(estimate_tokens(messages))
+        if config.print_context_lengths:
+            print(f"  [request {step}/{config.max_steps}] context_tokens_est={request_context_tokens[-1]}")
         ai_message = llm_with_tools.invoke(messages)
         if not isinstance(ai_message, AIMessage):
             ai_message = AIMessage(content=_content_to_text(ai_message))
@@ -293,6 +296,8 @@ def _run_with_manual_actions(
         crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
 
         request_context_tokens.append(estimate_tokens(messages))
+        if config.print_context_lengths:
+            print(f"  [request {step}/{config.max_steps}] context_tokens_est={request_context_tokens[-1]}")
         ai_message = llm.invoke(messages)
         if not isinstance(ai_message, AIMessage):
             ai_message = AIMessage(content=_content_to_text(ai_message))
