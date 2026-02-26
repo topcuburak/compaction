@@ -55,6 +55,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-search-results", type=int, default=5)
     parser.add_argument("--max-result-chars", type=int, default=700)
     parser.add_argument(
+        "--min-searches",
+        type=int,
+        default=0,
+        help="Minimum number of web searches before allowing FINAL_ANSWER (0 disables)",
+    )
+    parser.add_argument(
         "--only-over-budget",
         action="store_true",
         help="Keep/evaluate only rows where max_context_tokens_est exceeds a threshold",
@@ -134,6 +140,7 @@ def main() -> None:
         max_steps=args.max_steps,
         max_search_results=args.max_search_results,
         max_result_chars=args.max_result_chars,
+        min_searches=args.min_searches,
         print_context_lengths=args.print_request_context_lengths,
     )
 

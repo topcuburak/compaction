@@ -58,6 +58,7 @@ class AgentConfig:
     max_search_results: int = 5
     max_result_chars: int = 700
     tool_mode: str = "manual"  # one of: manual, native
+    min_searches: int = 0
     print_context_lengths: bool = False
 
 
@@ -214,6 +215,19 @@ def _run_with_native_tools(
 
         final = _extract_final_answer(ai_message.content)
         if final:
+            if tool_calls < config.min_searches:
+                messages.append(
+                    HumanMessage(
+                        content=(
+                            "You need to gather more evidence before answering. "
+                            "Call web_search to find additional supporting information."
+                        )
+                    )
+                )
+                max_tokens = _update_peak_tokens(messages, max_tokens)
+                crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
+                continue
+
             return QuestionRunResult(
                 question_id=question_id,
                 question=question,
@@ -308,6 +322,19 @@ def _run_with_manual_actions(
 
         final = _extract_final_answer(ai_message.content)
         if final:
+            if tool_calls < config.min_searches:
+                messages.append(
+                    HumanMessage(
+                        content=(
+                            "You need to gather more evidence before answering. "
+                            "Use SEARCH: <query> to find additional supporting information."
+                        )
+                    )
+                )
+                max_tokens = _update_peak_tokens(messages, max_tokens)
+                crossed_budget = crossed_budget or estimate_tokens(messages) > token_budget
+                continue
+
             return QuestionRunResult(
                 question_id=question_id,
                 question=question,
