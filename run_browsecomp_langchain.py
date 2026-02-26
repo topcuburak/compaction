@@ -108,6 +108,13 @@ def parse_args() -> argparse.Namespace:
         help="Stop execution after finding this many individual over-threshold requests (0 disables early stop)",
     )
 
+    parser.add_argument(
+        "--save-trajectories",
+        type=str,
+        default="",
+        help="Directory to save full message trajectories for over-threshold questions (one JSON file per question)",
+    )
+
     parser.add_argument("--output-dir", type=str, default="")
     return parser.parse_args()
 
@@ -142,6 +149,7 @@ def main() -> None:
         max_result_chars=args.max_result_chars,
         min_searches=args.min_searches,
         print_context_lengths=args.print_request_context_lengths,
+        save_trajectory=bool(args.save_trajectories),
     )
 
     compaction_config = CompactionConfig(
@@ -231,6 +239,24 @@ def main() -> None:
                 subset_record["length_metric"] = args.length_metric
                 subset_record["length_value"] = str(metric_value)
                 over_budget_examples.append(subset_record)
+
+                if args.save_trajectories and run.trajectory:
+                    traj_dir = Path(args.save_trajectories)
+                    traj_dir.mkdir(parents=True, exist_ok=True)
+                    safe_id = example.id.replace("/", "_")
+                    traj_path = traj_dir / f"{safe_id}.json"
+                    traj_data = {
+                        "id": example.id,
+                        "question": example.question,
+                        "answer": example.answer,
+                        "final_answer": run.final_answer,
+                        "steps": run.steps,
+                        "tool_calls": run.tool_calls,
+                        "max_request_context_tokens_est": run.max_request_context_tokens_est,
+                        "request_context_tokens_est": run.request_context_tokens_est,
+                        "trajectory": run.trajectory,
+                    }
+                    traj_path.write_text(json.dumps(traj_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
             score = None
             if example.answer is not None:

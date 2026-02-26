@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 try:
     from ddgs import DDGS
@@ -60,6 +60,7 @@ class AgentConfig:
     tool_mode: str = "manual"  # one of: manual, native
     min_searches: int = 0
     print_context_lengths: bool = False
+    save_trajectory: bool = False
 
 
 @dataclass(slots=True)
@@ -75,6 +76,29 @@ class QuestionRunResult:
     max_request_context_tokens_est: int
     crossed_token_budget: bool
     finished_reason: str
+    trajectory: list[dict] = field(default_factory=list)
+
+
+_MSG_TYPE_TO_ROLE = {
+    "SystemMessage": "system",
+    "HumanMessage": "human",
+    "AIMessage": "assistant",
+    "ToolMessage": "tool",
+}
+
+
+def _serialize_messages(messages: list[BaseMessage]) -> list[dict]:
+    """Convert LangChain messages to a list of plain dicts for JSON serialization."""
+    result: list[dict] = []
+    for msg in messages:
+        role = _MSG_TYPE_TO_ROLE.get(type(msg).__name__, type(msg).__name__.lower())
+        entry: dict = {"role": role, "content": _content_to_text(msg.content)}
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            entry["tool_calls"] = msg.tool_calls
+        if isinstance(msg, ToolMessage):
+            entry["tool_call_id"] = msg.tool_call_id
+        result.append(entry)
+    return result
 
 
 def _content_to_text(content: object) -> str:
@@ -240,6 +264,7 @@ def _run_with_native_tools(
                 max_request_context_tokens_est=max(request_context_tokens, default=0),
                 crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
+                trajectory=_serialize_messages(messages) if config.save_trajectory else [],
             )
 
         messages.append(
@@ -280,6 +305,7 @@ def _run_with_native_tools(
         max_request_context_tokens_est=max(request_context_tokens, default=0),
         crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
+        trajectory=_serialize_messages(messages) if config.save_trajectory else [],
     )
 
 
@@ -347,6 +373,7 @@ def _run_with_manual_actions(
                 max_request_context_tokens_est=max(request_context_tokens, default=0),
                 crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
+                trajectory=_serialize_messages(messages) if config.save_trajectory else [],
             )
 
         search_query = _extract_search_query(ai_message.content)
@@ -414,6 +441,7 @@ def _run_with_manual_actions(
         max_request_context_tokens_est=max(request_context_tokens, default=0),
         crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
+        trajectory=_serialize_messages(messages) if config.save_trajectory else [],
     )
 
 
