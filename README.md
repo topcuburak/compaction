@@ -145,9 +145,13 @@ python run_browsecomp_langchain.py \
   --tool-mode manual \
   --token-budget 110000 \
   --over-budget-threshold 110000 \
+  --length-metric request \
   --stop-after-over-budget 5 \
   --save-over-budget-dataset data/browsecomp_over_110k_first5.jsonl
 ```
+
+`--length-metric request` uses max per-request context length.  
+Use `--length-metric trajectory` to use trajectory-wide peak context length.
 
 ## Compare all three baseline strategies
 

@@ -70,6 +70,7 @@ class QuestionRunResult:
     context_tokens_est: int
     max_context_tokens_est: int
     request_context_tokens_est: list[int]
+    max_request_context_tokens_est: int
     crossed_token_budget: bool
     finished_reason: str
 
@@ -219,6 +220,7 @@ def _run_with_native_tools(
                 context_tokens_est=estimate_tokens(messages),
                 max_context_tokens_est=max_tokens,
                 request_context_tokens_est=request_context_tokens,
+                max_request_context_tokens_est=max(request_context_tokens, default=0),
                 crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
             )
@@ -258,6 +260,7 @@ def _run_with_native_tools(
         context_tokens_est=estimate_tokens(messages),
         max_context_tokens_est=max_tokens,
         request_context_tokens_est=request_context_tokens,
+        max_request_context_tokens_est=max(request_context_tokens, default=0),
         crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
     )
@@ -309,6 +312,7 @@ def _run_with_manual_actions(
                 context_tokens_est=estimate_tokens(messages),
                 max_context_tokens_est=max_tokens,
                 request_context_tokens_est=request_context_tokens,
+                max_request_context_tokens_est=max(request_context_tokens, default=0),
                 crossed_token_budget=crossed_budget,
                 finished_reason="final_answer",
             )
@@ -375,6 +379,7 @@ def _run_with_manual_actions(
         context_tokens_est=estimate_tokens(messages),
         max_context_tokens_est=max_tokens,
         request_context_tokens_est=request_context_tokens,
+        max_request_context_tokens_est=max(request_context_tokens, default=0),
         crossed_token_budget=crossed_budget,
         finished_reason="max_steps",
     )

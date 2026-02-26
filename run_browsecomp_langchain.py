@@ -66,6 +66,13 @@ def parse_args() -> argparse.Namespace:
         help="Threshold for --only-over-budget (defaults to --token-budget)",
     )
     parser.add_argument(
+        "--length-metric",
+        type=str,
+        default="request",
+        choices=["request", "trajectory"],
+        help="Metric used for over-budget detection and subset saving",
+    )
+    parser.add_argument(
         "--save-over-budget-dataset",
         type=str,
         default="",
@@ -173,6 +180,7 @@ def main() -> None:
                     "context_tokens_est": 0,
                     "max_context_tokens_est": 0,
                     "request_context_tokens_est": [],
+                    "max_request_context_tokens_est": 0,
                     "crossed_token_budget": False,
                     "finished_reason": "error",
                     "error_type": type(exc).__name__,
@@ -184,8 +192,13 @@ def main() -> None:
                 rows_file.write(json.dumps(error_row, ensure_ascii=True) + "\n")
                 continue
 
-            is_over_budget = run.max_context_tokens_est > over_budget_threshold
-            keep_row = (not args.only_over_budget) or (run.max_context_tokens_est > over_budget_threshold)
+            metric_value = (
+                run.max_request_context_tokens_est
+                if args.length_metric == "request"
+                else run.max_context_tokens_est
+            )
+            is_over_budget = metric_value > over_budget_threshold
+            keep_row = (not args.only_over_budget) or is_over_budget
             if is_over_budget:
                 subset_record: dict[str, str] = {
                     "id": example.id,
@@ -193,6 +206,8 @@ def main() -> None:
                 }
                 if example.answer is not None:
                     subset_record["answer"] = example.answer
+                subset_record["length_metric"] = args.length_metric
+                subset_record["length_value"] = str(metric_value)
                 over_budget_examples.append(subset_record)
 
             score = None
@@ -223,10 +238,13 @@ def main() -> None:
                 "context_tokens_est": run.context_tokens_est,
                 "max_context_tokens_est": run.max_context_tokens_est,
                 "request_context_tokens_est": run.request_context_tokens_est,
+                "max_request_context_tokens_est": run.max_request_context_tokens_est,
                 "crossed_token_budget": run.crossed_token_budget,
                 "finished_reason": run.finished_reason,
                 "latency_sec": round(latency, 3),
                 "strategy": args.strategy,
+                "length_metric": args.length_metric,
+                "length_value": metric_value,
                 "kept_for_summary": keep_row,
             }
             if keep_row:
@@ -277,6 +295,7 @@ def main() -> None:
         "tool_mode": args.tool_mode,
         "only_over_budget": args.only_over_budget,
         "over_budget_threshold": over_budget_threshold,
+        "length_metric": args.length_metric,
         "over_budget_dataset_path": over_budget_dataset_path,
         "accuracy_exact_match": _mean_or_none(scores),
         "avg_steps": _mean_or_none(steps_list),
